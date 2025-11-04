@@ -116,4 +116,28 @@ impl RedisClient {
 
         Ok(Ok(res))
     }
+
+    pub async fn extend_user_ttl(&self, user_id: i64) -> RedisResult<bool> {
+        let mut conn = self.client
+            .get_multiplexed_async_connection()
+            .await?;
+
+        let key = format!("user:{}", &user_id);
+
+        let res = conn.expire(&key, self.user_ttl_s).await?;
+
+        Ok(res)
+    }
+
+    pub async fn remove_user(&self, user_id: i64) -> RedisResult<()> {
+        let mut conn = self.client
+            .get_multiplexed_async_connection()
+            .await?;
+
+        let key = format!("user:{}", &user_id);
+
+        conn.del(key).await?;
+
+        Ok(())
+    }
 }
