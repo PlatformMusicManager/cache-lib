@@ -1,21 +1,24 @@
-use redis::{AsyncTypedCommands, RedisResult, TypedCommands};
+use domain::db::user::UserWithPlaylists;
+use redis::{AsyncTypedCommands, JsonAsyncCommands, RedisResult, TypedCommands};
 use uuid::Uuid;
 
 use crate::errors::session_errors::SessionError;
+use crate::errors::user_errors::UserError;
 
-pub mod models;
 pub mod errors;
 
 struct RedisClient {
     client: redis::Client,
-    session_ttl_s: u64
+    session_ttl_s: u64,
+    user_ttl_s: i64
 }
 
 impl RedisClient {
-    pub fn new(connection_string: String, session_ttl_s: u64) -> Self {
+    pub fn new(connection_string: String, session_ttl_s: u64, user_ttl_s: i64) -> Self {
         Self {
             client: redis::Client::open(connection_string).unwrap(),
-            session_ttl_s
+            session_ttl_s,
+            user_ttl_s
         }
     }
 
@@ -79,5 +82,38 @@ impl RedisClient {
         }
     }
 
-    
+    pub async fn create_user(&self, user: UserWithPlaylists) -> RedisResult<()> {
+        let mut conn = self.client
+            .get_multiplexed_async_connection()
+            .await?;
+
+        let key = format!("user:{}", &user.id);
+
+        let mut pipe = redis::pipe();
+        pipe.atomic() // Ensures the commands are executed atomically (like a transaction)
+            .json_set(&key, "$", &user)?
+            .expire(&key, self.user_ttl_s);
+
+        pipe.query_async::<()>(&mut conn).await?;
+
+        Ok(())
+    }
+
+    pub async fn get_user(&self, user_id: i64) -> RedisResult<Result<UserWithPlaylists, UserError>> {
+        let mut conn = self.client
+            .get_multiplexed_async_connection()
+            .await?;
+
+        let key = format!("user:{}", &user_id);
+
+        let Some(res) = conn.json_get::<_, _, Option<String>>(key, "$").await? else {
+            return Ok(Err(UserError::UserNotFound))
+        };
+
+        let Ok(res) = serde_json::from_str::<UserWithPlaylists>(&res) else {
+            return Ok(Err(UserError::ParseError))
+        };
+
+        Ok(Ok(res))
+    }
 }
