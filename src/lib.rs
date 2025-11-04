@@ -1,9 +1,12 @@
+use domain::cache::await_verification::UserAwaitVerification;
+use domain::cache::user_verify_result::UserVerifyResult;
 use domain::db::user::UserWithPlaylists;
-use redis::{AsyncTypedCommands, JsonAsyncCommands, RedisResult, TypedCommands};
+use redis::{ AsyncTypedCommands, JsonAsyncCommands, RedisResult, TypedCommands};
 use uuid::Uuid;
 
 use crate::errors::session_errors::SessionError;
 use crate::errors::user_errors::UserError;
+use crate::errors::verify_user_errors::UserVerifyError;
 
 pub mod errors;
 
@@ -11,15 +14,19 @@ pub mod errors;
 pub struct RedisClient {
     client: redis::Client,
     session_ttl_s: u64,
-    user_ttl_s: i64
+    verify_ttl_s: u64,
+    user_ttl_s: i64,
+    verify_attempts: u8,
 }
 
 impl RedisClient {
-    pub fn new(connection_string: String, session_ttl_s: u64, user_ttl_s: i64) -> Self {
+    pub fn new(connection_string: String, session_ttl_s: u64, user_ttl_s: i64, verify_ttl_s: u64, verify_attempts: u8) -> Self {
         Self {
             client: redis::Client::open(connection_string).unwrap(),
             session_ttl_s,
-            user_ttl_s
+            verify_ttl_s,
+            user_ttl_s,
+            verify_attempts
         }
     }
 
@@ -140,5 +147,72 @@ impl RedisClient {
         conn.del(key).await?;
 
         Ok(())
+    }
+
+    pub async fn add_user_verify(&self, sn: Uuid, user: UserAwaitVerification) -> RedisResult<()> {
+        let mut conn = self.client
+            .get_multiplexed_async_connection()
+            .await?;
+
+        let key = format!("verify-user:{}", &sn);
+
+        let mut pipe = redis::pipe();
+        pipe.atomic() // Ensures the commands are executed atomically (like a transaction)
+            .hset_multiple(&key, &user.to_hash_array())
+            .expire(&key, self.user_ttl_s);
+
+        pipe.query_async::<()>(&mut conn).await?;
+
+        Ok(())
+    }
+
+    pub async fn verify_user(&self, sn: Uuid, code: String) -> RedisResult<Result<UserVerifyResult, UserVerifyError>> {
+        let mut conn = self.client
+            .get_multiplexed_async_connection()
+            .await?;
+
+        let key = format!("verify-user:{}", &sn);
+
+        let user = conn.hgetall(&key).await?;
+
+        let (Some(attempts), Some(code_r)) = (user.get("attempts"), user.get("code")) else {
+            return Ok(Err(UserVerifyError::UserNotFound))
+        };
+
+        if (code != *code_r) {
+            let attempts = match attempts.parse::<u8>() {
+                Ok(num) => num + 1, // ADDING ONE ATTEMPT HERE
+                Err(_) => return Ok(Err(UserVerifyError::ParseError)),
+            };
+
+            if attempts >= self.verify_attempts {
+                conn.del(&key).await?;
+                Ok(Err(UserVerifyError::ExceededAttempts))
+            } else {
+                conn.hset(&key, "attempts", attempts.to_string()).await?;
+                Ok(Err(UserVerifyError::WrongCode))
+            }
+        } else {
+            conn.del(&key).await?;
+
+            let (
+                Some(email),
+                Some(username),
+                Some(password_hash)
+            ) = (
+                user.get("email"),
+                user.get("username"),
+                user.get("password_hash")
+                )
+            else {
+                return Ok(Err(UserVerifyError::ParseError));
+            };
+
+            Ok(Ok(UserVerifyResult {
+                email: email.to_string(),
+                username: username.to_string(),
+                password_hash: password_hash.to_string(),
+            }))
+        }
     }
 }
