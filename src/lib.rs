@@ -1,3 +1,4 @@
+use chrono::{DateTime, Duration, Utc};
 use domain::cache::await_verification::UserAwaitVerification;
 use domain::cache::user_verify_result::UserVerifyResult;
 use domain::db::user::UserWithPlaylists;
@@ -15,17 +16,25 @@ pub struct RedisClient {
     client: redis::Client,
     session_ttl_s: u64,
     verify_ttl_s: u64,
+    verify_duration: Duration,
     user_ttl_s: i64,
     verify_attempts: u8,
 }
 
 impl RedisClient {
-    pub fn new(connection_string: String, session_ttl_s: u64, user_ttl_s: i64, verify_ttl_s: u64, verify_attempts: u8) -> Self {
+    pub fn new(
+        connection_string: String,
+        session_ttl_s: u64,
+        user_ttl_s: i64,
+        verify_ttl_s: u64,
+        verify_attempts: u8
+    ) -> Self {
         Self {
             client: redis::Client::open(connection_string).unwrap(),
             session_ttl_s,
             verify_ttl_s,
             user_ttl_s,
+            verify_duration: Duration::seconds(verify_ttl_s as i64),
             verify_attempts
         }
     }
@@ -108,21 +117,18 @@ impl RedisClient {
     }
 
     pub async fn get_user(&self, user_id: i64) -> RedisResult<Result<UserWithPlaylists, UserError>> {
-        let mut conn = self.client
-            .get_multiplexed_async_connection()
-            .await?;
-
+        let mut conn = self.client.get_multiplexed_async_connection().await?;
         let key = format!("user:{}", &user_id);
 
-        let Some(res) = conn.json_get::<_, _, Option<String>>(key, "$").await? else {
-            return Ok(Err(UserError::UserNotFound))
-        };
+        let res: Option<String> = conn.json_get(key, "$").await?;
 
-        let Ok(res) = serde_json::from_str::<UserWithPlaylists>(&res) else {
-            return Ok(Err(UserError::ParseError))
-        };
-
-        Ok(Ok(res))
+        match res {
+            Some(res) => match serde_json::from_str::<UserWithPlaylists>(&res) {
+                Ok(user) => Ok(Ok(user)),
+                Err(_) => Ok(Err(UserError::ParseError)),
+            },
+            None => Ok(Err(UserError::UserNotFound)),
+        }
     }
 
     pub async fn extend_user_ttl(&self, user_id: i64) -> RedisResult<bool> {
@@ -166,7 +172,8 @@ impl RedisClient {
         Ok(())
     }
 
-    pub async fn verify_user(&self, sn: Uuid, code: String) -> RedisResult<Result<UserVerifyResult, UserVerifyError>> {
+    pub async fn verify_user(&self, sn: Uuid, code: String)
+        -> RedisResult<Result<UserVerifyResult, UserVerifyError>> {
         let mut conn = self.client
             .get_multiplexed_async_connection()
             .await?;
@@ -175,34 +182,50 @@ impl RedisClient {
 
         let user = conn.hgetall(&key).await?;
 
-        let (Some(attempts), Some(code_r)) = (user.get("attempts"), user.get("code")) else {
+        // CHECK IS STILL VALID
+        let Some(created_at) = user.get("created_at") else {
+            return Ok(Err(UserVerifyError::UserNotFound))
+        };
+
+        match DateTime::parse_from_rfc3339(&created_at) {
+            Ok(created_at) => {
+                if created_at + self.verify_duration > Utc::now() {
+                    return Ok(Err(UserVerifyError::Expired))
+                }
+            },
+            Err(_) => return Ok(Err(UserVerifyError::ParseError))
+        };
+
+        // CHECK CODE
+        let (Some(attempts), Some(code_r)) =
+            (user.get("attempts"), user.get("code")) else {
             return Ok(Err(UserVerifyError::UserNotFound))
         };
 
         if (code != *code_r) {
+            // ADD ATTEMPTS
             let attempts = match attempts.parse::<u8>() {
                 Ok(num) => num + 1, // ADDING ONE ATTEMPT HERE
                 Err(_) => return Ok(Err(UserVerifyError::ParseError)),
             };
 
+            // IF ExceededAttempts
             if attempts >= self.verify_attempts {
                 conn.del(&key).await?;
                 Ok(Err(UserVerifyError::ExceededAttempts))
             } else {
+                // Add to attempts
                 conn.hset(&key, "attempts", attempts.to_string()).await?;
                 Ok(Err(UserVerifyError::WrongCode))
             }
         } else {
+            // VERIFIED
             conn.del(&key).await?;
 
             let (
-                Some(email),
-                Some(username),
-                Some(password_hash)
+                Some(email), Some(username), Some(password_hash)
             ) = (
-                user.get("email"),
-                user.get("username"),
-                user.get("password_hash")
+                user.get("email"), user.get("username"), user.get("password_hash")
                 )
             else {
                 return Ok(Err(UserVerifyError::ParseError));

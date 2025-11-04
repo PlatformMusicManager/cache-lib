@@ -10,4 +10,6 @@ pub enum UserVerifyError {
     ExceededAttempts,
     #[error("Wrong code")]
     WrongCode,
+    #[error("Expired")]
+    Expired,
 }
