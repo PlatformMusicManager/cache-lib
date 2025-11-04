@@ -7,7 +7,7 @@ use crate::errors::user_errors::UserError;
 
 pub mod errors;
 
-struct RedisClient {
+pub struct RedisClient {
     client: redis::Client,
     session_ttl_s: u64,
     user_ttl_s: i64
