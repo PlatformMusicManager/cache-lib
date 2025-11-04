@@ -118,6 +118,7 @@ dependencies = [
  "iana-time-zone",
  "js-sys",
  "num-traits",
+ "serde",
  "wasm-bindgen",
  "windows-link",
 ]
@@ -245,7 +246,10 @@ name = "domain"
 version = "0.1.0"
 dependencies = [
  "chrono",
+ "redis",
+ "redis-macros",
  "serde",
+ "serde_json",
  "sqlx",
  "uuid",
 ]
@@ -963,6 +967,30 @@ dependencies = [
  "tokio",
  "tokio-util",
  "url",
+]
+
+[[package]]
+name = "redis-macros"
+version = "0.5.6"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "5ac3609707f8c68aac6f3871c9a9596a7a9e30e3cc42ebba741d13b39e27c6d8"
+dependencies = [
+ "redis",
+ "redis-macros-derive",
+ "serde",
+ "serde_json",
+]
+
+[[package]]
+name = "redis-macros-derive"
+version = "0.5.6"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "923db076e23f014fd5c5504fba397d3dd06b29724a3dd8e21aa7a3423c00b129"
+dependencies = [
+ "proc-macro2",
+ "quote",
+ "redis",
+ "syn",
 ]
 
 [[package]]
