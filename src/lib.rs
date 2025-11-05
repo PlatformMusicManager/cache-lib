@@ -1,15 +1,12 @@
 use chrono::{DateTime, Duration, Utc};
-use domain::cache::await_verification::UserAwaitVerification;
-use domain::cache::user_verify_result::UserVerifyResult;
-use domain::db::user::UserWithPlaylists;
-use redis::{ AsyncTypedCommands, JsonAsyncCommands, RedisResult, TypedCommands};
+use domain::errors::cache::session_errors::SessionError;
+use domain::errors::cache::user_errors::UserError;
+use domain::errors::cache::verify_user_errors::UserVerifyError;
+use domain::models::cache::await_verification::UserAwaitVerification;
+use domain::models::cache::user_verify_result::UserVerifyResult;
+use domain::models::db::user::UserWithPlaylists;
+use redis::{AsyncTypedCommands, JsonAsyncCommands, RedisResult, TypedCommands};
 use uuid::Uuid;
-
-use crate::errors::session_errors::SessionError;
-use crate::errors::user_errors::UserError;
-use crate::errors::verify_user_errors::UserVerifyError;
-
-pub mod errors;
 
 #[derive(Clone)]
 pub struct RedisClient {
