@@ -12,7 +12,7 @@ use uuid::Uuid;
 pub struct RedisClient {
     client: redis::Client,
     session_ttl_s: u64,
-    verify_ttl_s: u64,
+    verify_ttl_s: i64,
     verify_duration: Duration,
     user_ttl_s: i64,
     verify_attempts: u8,
@@ -29,7 +29,7 @@ impl RedisClient {
         Self {
             client: redis::Client::open(connection_string).unwrap(),
             session_ttl_s,
-            verify_ttl_s,
+            verify_ttl_s: verify_ttl_s as i64,
             user_ttl_s,
             verify_duration: Duration::seconds(verify_ttl_s as i64),
             verify_attempts
@@ -162,7 +162,7 @@ impl RedisClient {
         let mut pipe = redis::pipe();
         pipe.atomic() // Ensures the commands are executed atomically (like a transaction)
             .hset_multiple(&key, &user.to_hash_array())
-            .expire(&key, self.user_ttl_s);
+            .expire(&key, self.verify_ttl_s);
 
         pipe.query_async::<()>(&mut conn).await?;
 
