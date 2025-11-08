@@ -199,7 +199,7 @@ impl RedisClient {
             return Ok(Err(UserVerifyError::UserNotFound))
         };
 
-        if (code != *code_r) {
+        if code != *code_r {
             // ADD ATTEMPTS
             let attempts = match attempts.parse::<u8>() {
                 Ok(num) => num + 1, // ADDING ONE ATTEMPT HERE
