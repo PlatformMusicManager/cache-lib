@@ -5,7 +5,7 @@ use domain::errors::cache::verify_user_errors::UserVerifyError;
 use domain::models::cache::await_verification::UserAwaitVerification;
 use domain::models::cache::user_verify_result::UserVerifyResult;
 use domain::models::db::user::UserWithPlaylists;
-use redis::{AsyncTypedCommands, JsonAsyncCommands, RedisResult, TypedCommands};
+use redis::{AsyncTypedCommands, JsonAsyncCommands, RedisResult};
 use uuid::Uuid;
 
 #[derive(Clone)]
