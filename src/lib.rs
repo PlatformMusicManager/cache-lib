@@ -186,7 +186,7 @@ impl RedisClient {
 
         match DateTime::parse_from_rfc3339(&created_at) {
             Ok(created_at) => {
-                if created_at + self.verify_duration > Utc::now() {
+                if created_at + self.verify_duration < Utc::now() {
                     return Ok(Err(UserVerifyError::Expired))
                 }
             },
