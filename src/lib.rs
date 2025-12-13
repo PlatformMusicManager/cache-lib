@@ -48,7 +48,7 @@ impl RedisClient {
         Ok(())
     }
 
-    pub async fn proof_session(&self, session_id: Uuid, sn: Uuid) -> RedisResult<Option<SessionError>> {
+    pub async fn proof_session(&self, session_id: Uuid, sn: Uuid) -> RedisResult<Result<(), SessionError>> {
         let mut conn = self.client
             .get_multiplexed_async_connection()
             .await?;
@@ -61,12 +61,12 @@ impl RedisClient {
             Some(sn_r) => {
                 if sn.to_string() != sn_r
                 {
-                    return Ok(Some(SessionError::SessionWasUpdated))
+                    return Ok(Err(SessionError::SessionWasUpdated))
                 }
 
-                Ok(None)
+                Ok(Ok(()))
             },
-            None => Ok(Some(SessionError::SessionNotFound))
+            None => Ok(Err(SessionError::SessionNotFound))
         }
     }
 
