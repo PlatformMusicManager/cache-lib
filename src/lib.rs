@@ -24,7 +24,7 @@ impl RedisClient {
         session_ttl_s: u64,
         user_ttl_s: i64,
         verify_ttl_s: u64,
-        verify_attempts: u8
+        verify_attempts: u8,
     ) -> Self {
         Self {
             client: redis::Client::open(connection_string).unwrap(),
@@ -32,74 +32,69 @@ impl RedisClient {
             verify_ttl_s: verify_ttl_s as i64,
             user_ttl_s,
             verify_duration: Duration::seconds(verify_ttl_s as i64),
-            verify_attempts
+            verify_attempts,
         }
     }
 
     pub async fn create_session(&self, session_id: Uuid, sn: Uuid) -> RedisResult<()> {
-        let mut conn = self.client
-            .get_multiplexed_async_connection()
-            .await?;
+        let mut conn = self.client.get_multiplexed_async_connection().await?;
 
         let key = format!("session:{}", session_id);
 
-        conn.set_ex(&key, sn.to_string(), self.session_ttl_s).await?;
+        conn.set_ex(&key, sn.to_string(), self.session_ttl_s)
+            .await?;
 
         Ok(())
     }
 
-    pub async fn proof_session(&self, session_id: Uuid, sn: Uuid) -> RedisResult<Result<(), SessionError>> {
-        let mut conn = self.client
-            .get_multiplexed_async_connection()
-            .await?;
+    pub async fn proof_session(
+        &self,
+        session_id: Uuid,
+        sn: Uuid,
+    ) -> RedisResult<Result<(), SessionError>> {
+        let mut conn = self.client.get_multiplexed_async_connection().await?;
 
-        let sn_r: Option<String> = conn
-        .get(format!("session:{}", session_id))
-        .await?;
+        let sn_r: Option<String> = conn.get(format!("session:{}", session_id)).await?;
 
         match sn_r {
             Some(sn_r) => {
-                if sn.to_string() != sn_r
-                {
-                    return Ok(Err(SessionError::SessionWasUpdated))
+                if sn.to_string() != sn_r {
+                    return Ok(Err(SessionError::SessionWasUpdated));
                 }
 
                 Ok(Ok(()))
-            },
-            None => Ok(Err(SessionError::SessionNotFound))
+            }
+            None => Ok(Err(SessionError::SessionNotFound)),
         }
     }
 
-    pub async fn remove_session(&self, session_id: Uuid, sn: Uuid) -> RedisResult<Option<SessionError>> {
-        let mut conn = self.client
-            .get_multiplexed_async_connection()
-            .await?;
+    pub async fn remove_session(
+        &self,
+        session_id: Uuid,
+        sn: Uuid,
+    ) -> RedisResult<Option<SessionError>> {
+        let mut conn = self.client.get_multiplexed_async_connection().await?;
 
         let key = format!("session:{}", session_id);
 
-        let sn_r: Option<String> = conn
-        .get(&key)
-        .await?;
+        let sn_r: Option<String> = conn.get(&key).await?;
 
         match sn_r {
             Some(sn_r) => {
-                if sn.to_string() != sn_r
-                {
-                    return Ok(Some(SessionError::SessionWasUpdated))
+                if sn.to_string() != sn_r {
+                    return Ok(Some(SessionError::SessionWasUpdated));
                 }
 
                 conn.del(key).await?;
 
                 Ok(None)
-            },
-            None => Ok(Some(SessionError::SessionNotFound))
+            }
+            None => Ok(Some(SessionError::SessionNotFound)),
         }
     }
 
     pub async fn create_user(&self, user: UserWithPlaylists) -> RedisResult<()> {
-        let mut conn = self.client
-            .get_multiplexed_async_connection()
-            .await?;
+        let mut conn = self.client.get_multiplexed_async_connection().await?;
 
         let key = format!("user:{}", &user.id);
 
@@ -113,11 +108,14 @@ impl RedisClient {
         Ok(())
     }
 
-    pub async fn get_user(&self, user_id: i64) -> RedisResult<Result<UserWithPlaylists, UserError>> {
+    pub async fn get_user(
+        &self,
+        user_id: i64,
+    ) -> RedisResult<Result<UserWithPlaylists, UserError>> {
         let mut conn = self.client.get_multiplexed_async_connection().await?;
         let key = format!("user:{}", &user_id);
 
-        let res: Option<String> = conn.json_get(key, "$").await?;
+        let res: Option<String> = conn.json_get(key, ".").await?;
 
         match res {
             Some(res) => match serde_json::from_str::<UserWithPlaylists>(&res) {
@@ -129,9 +127,7 @@ impl RedisClient {
     }
 
     pub async fn extend_user_ttl(&self, user_id: i64) -> RedisResult<bool> {
-        let mut conn = self.client
-            .get_multiplexed_async_connection()
-            .await?;
+        let mut conn = self.client.get_multiplexed_async_connection().await?;
 
         let key = format!("user:{}", &user_id);
 
@@ -141,9 +137,7 @@ impl RedisClient {
     }
 
     pub async fn remove_user(&self, user_id: i64) -> RedisResult<()> {
-        let mut conn = self.client
-            .get_multiplexed_async_connection()
-            .await?;
+        let mut conn = self.client.get_multiplexed_async_connection().await?;
 
         let key = format!("user:{}", &user_id);
 
@@ -153,9 +147,7 @@ impl RedisClient {
     }
 
     pub async fn add_user_verify(&self, sn: Uuid, user: UserAwaitVerification) -> RedisResult<()> {
-        let mut conn = self.client
-            .get_multiplexed_async_connection()
-            .await?;
+        let mut conn = self.client.get_multiplexed_async_connection().await?;
 
         let key = format!("verify-user:{}", &sn);
 
@@ -169,11 +161,12 @@ impl RedisClient {
         Ok(())
     }
 
-    pub async fn verify_user(&self, sn: Uuid, code: String)
-        -> RedisResult<Result<UserVerifyResult, UserVerifyError>> {
-        let mut conn = self.client
-            .get_multiplexed_async_connection()
-            .await?;
+    pub async fn verify_user(
+        &self,
+        sn: Uuid,
+        code: String,
+    ) -> RedisResult<Result<UserVerifyResult, UserVerifyError>> {
+        let mut conn = self.client.get_multiplexed_async_connection().await?;
 
         let key = format!("verify-user:{}", &sn);
 
@@ -181,22 +174,21 @@ impl RedisClient {
 
         // CHECK IS STILL VALID
         let Some(created_at) = user.get("created_at") else {
-            return Ok(Err(UserVerifyError::UserNotFound))
+            return Ok(Err(UserVerifyError::UserNotFound));
         };
 
         match DateTime::parse_from_rfc3339(&created_at) {
             Ok(created_at) => {
                 if created_at + self.verify_duration < Utc::now() {
-                    return Ok(Err(UserVerifyError::Expired))
+                    return Ok(Err(UserVerifyError::Expired));
                 }
-            },
-            Err(_) => return Ok(Err(UserVerifyError::ParseError))
+            }
+            Err(_) => return Ok(Err(UserVerifyError::ParseError)),
         };
 
         // CHECK CODE
-        let (Some(attempts), Some(code_r)) =
-            (user.get("attempts"), user.get("code")) else {
-            return Ok(Err(UserVerifyError::UserNotFound))
+        let (Some(attempts), Some(code_r)) = (user.get("attempts"), user.get("code")) else {
+            return Ok(Err(UserVerifyError::UserNotFound));
         };
 
         if code != *code_r {
@@ -219,12 +211,11 @@ impl RedisClient {
             // VERIFIED
             conn.del(&key).await?;
 
-            let (
-                Some(email), Some(username), Some(password_hash)
-            ) = (
-                user.get("email"), user.get("username"), user.get("password_hash")
-                )
-            else {
+            let (Some(email), Some(username), Some(password_hash)) = (
+                user.get("email"),
+                user.get("username"),
+                user.get("password_hash"),
+            ) else {
                 return Ok(Err(UserVerifyError::ParseError));
             };
 
@@ -234,5 +225,59 @@ impl RedisClient {
                 password_hash: password_hash.to_string(),
             }))
         }
+    }
+    pub async fn lock_user(&self, user_id: i64) -> RedisResult<String> {
+        let mut conn = self.client.get_multiplexed_async_connection().await?;
+        let key = format!("lock:user:{}", user_id);
+        let token = Uuid::new_v4().to_string();
+
+        // Try to acquire lock
+        // Loop retry logic could be added here or handled by caller.
+        // For now, we will try to acquire it for reasonable amount of time
+        // But since this is a simple implementation, let's just try once or loop with sleep.
+        // Let's implement a simple spin lock with timeout
+        let start = std::time::Instant::now();
+        let timeout = std::time::Duration::from_secs(5); // 5s wait for lock
+
+        loop {
+            let res: Option<String> = redis::cmd("SET")
+                .arg(&key)
+                .arg(&token)
+                .arg("NX")
+                .arg("PX")
+                .arg(5000) // 5s lock ttl
+                .query_async(&mut conn)
+                .await?;
+
+            if res.is_some() {
+                return Ok(token);
+            }
+
+            if start.elapsed() > timeout {
+                return Err(redis::RedisError::from((
+                    redis::ErrorKind::IoError,
+                    "Could not acquire lock",
+                )));
+            }
+
+            tokio::time::sleep(std::time::Duration::from_millis(50)).await;
+        }
+    }
+
+    pub async fn unlock_user(&self, user_id: i64, token: &str) -> RedisResult<()> {
+        let mut conn = self.client.get_multiplexed_async_connection().await?;
+        let key = format!("lock:user:{}", user_id);
+
+        let script = redis::Script::new(
+            r"
+            if redis.call('get', KEYS[1]) == ARGV[1] then
+                return redis.call('del', KEYS[1])
+            else
+                return 0
+            end
+        ",
+        );
+
+        script.key(key).arg(token).invoke_async(&mut conn).await
     }
 }
