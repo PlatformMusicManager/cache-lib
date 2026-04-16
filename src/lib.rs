@@ -230,38 +230,33 @@ impl RedisClient {
         let mut conn = self.client.get_multiplexed_async_connection().await?;
         let key = format!("lock:user:{}", user_id);
         let token = Uuid::new_v4().to_string();
+        let retry_interval = std::time::Duration::from_millis(50);
 
-        // Try to acquire lock
-        // Loop retry logic could be added here or handled by caller.
-        // For now, we will try to acquire it for reasonable amount of time
-        // But since this is a simple implementation, let's just try once or loop with sleep.
-        // Let's implement a simple spin lock with timeout
-        let start = std::time::Instant::now();
-        let timeout = std::time::Duration::from_secs(5); // 5s wait for lock
+        // This wraps the entire logic in a 5s timeout
+        let acquire_result = tokio::time::timeout(std::time::Duration::from_secs(5), async {
+            loop {
+                let res: Option<String> = redis::cmd("SET")
+                    .arg(&key)
+                    .arg(&token)
+                    .arg("NX")
+                    .arg("PX")
+                    .arg(5000)
+                    .query_async(&mut conn)
+                    .await?;
 
-        loop {
-            let res: Option<String> = redis::cmd("SET")
-                .arg(&key)
-                .arg(&token)
-                .arg("NX")
-                .arg("PX")
-                .arg(5000) // 5s lock ttl
-                .query_async(&mut conn)
-                .await?;
+                if res.is_some() {
+                    return Ok(token);
+                }
 
-            if res.is_some() {
-                return Ok(token);
+                tokio::time::sleep(retry_interval).await;
             }
+        }).await;
 
-            if start.elapsed() > timeout {
-                return Err(redis::RedisError::from((
-                    redis::ErrorKind::IoError,
-                    "Could not acquire lock",
-                )));
-            }
-
-            tokio::time::sleep(std::time::Duration::from_millis(50)).await;
-        }
+        // Handle whether the timeout hit or we got a Redis error
+        acquire_result.unwrap_or_else(|_| Err(redis::RedisError::from((
+            redis::ErrorKind::Io,
+            "Lock acquisition timed out",
+        ))))
     }
 
     pub async fn unlock_user(&self, user_id: i64, token: &str) -> RedisResult<()> {
